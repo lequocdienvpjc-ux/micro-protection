@@ -1,0 +1,70 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Giải nén mã nguồn (nếu đẩy lên dạng bundle)
+        run: if [ -f bundle.tar.gz ]; then tar -xzf bundle.tar.gz; fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.27.4"
+          channel: stable
+          cache: true
+
+      - name: Tạo thư mục native Android
+        working-directory: app
+        run: flutter create . --platforms=android --org vn.microprotection --project-name micro_protection
+
+      - name: Cấu hình Android (quyền GPS, Internet, minSdk, tên app)
+        run: python3 tool/patch_android.py app
+
+      - name: Cài thư viện
+        working-directory: app
+        run: flutter pub get
+
+      - name: Kiểm tra mã nguồn
+        working-directory: app
+        continue-on-error: true
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Chạy unit test
+        working-directory: app
+        continue-on-error: true
+        run: flutter test
+
+      - name: Build APK
+        working-directory: app
+        run: flutter build apk --release
+
+      - name: Đặt tên file
+        run: cp app/build/app/outputs/flutter-apk/app-release.apk "MicroProtection-v0.1.${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: MicroProtection-*.apk
+
+      - name: Phát hành bản tải về
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Micro-Protection v0.1.${{ github.run_number }}
+          body: Bản APK cài đặt trực tiếp cho Android (bật "Cho phép cài từ nguồn không xác định").
+          files: MicroProtection-*.apk
